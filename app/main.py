@@ -3,7 +3,6 @@ from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtCore import QThread, pyqtSignal
 from ui import MainWindow
 from forensic import ForensicAnalyzer
-import concurrent.futures
 
 class Worker(QThread):
     finished = pyqtSignal(list)
@@ -27,9 +26,9 @@ class App(QMainWindow):
         self.ui = MainWindow(self)
         self.setCentralWidget(self.ui)
         self.ui.load_data_button.clicked.connect(self.load_data)
-        self.ui.worker_progress_signal.connect(self.update_progress)
 
     def load_data(self):
+        self.ui.worker_progress_signal.emit("Loading data...")
         # Replace 'Z:' with the drive letter where the image is mounted
         self.thread = Worker('E:/')
         self.thread.finished.connect(self.update_file_table)

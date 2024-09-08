@@ -1,93 +1,50 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtCore import QThread, pyqtSignal
-from ui_mainwindow import Ui_MainWindow
-from analysis import extract, registry, logs, network, timestamp, malware, report
+from ui import MainWindow
+from forensic import ForensicAnalyzer
+import concurrent.futures
 
-class ForensicAnalysisThread(QThread):
-    update_progress = pyqtSignal(int)
-    analysis_done = pyqtSignal(dict)
+class Worker(QThread):
+    finished = pyqtSignal(list)
+    progress = pyqtSignal(str)
 
-    def __init__(self, analysis_type, image_path, output_dir):
+    def __init__(self, directory):
         super().__init__()
-        self.analysis_type = analysis_type
-        self.image_path = image_path
-        self.output_dir = output_dir
+        self.directory = directory
 
     def run(self):
-        results = {}
-        # Run the specific analysis based on the analysis type
-        if self.analysis_type == 'extract':
-            extract.extract_files(self.image_path, self.output_dir)
-            results['extract'] = "Files extracted successfully."
-        elif self.analysis_type == 'registry':
-            results['registry'] = registry.extract_registry_entries(self.image_path)
-        elif self.analysis_type == 'logs':
-            results['logs'] = logs.extract_system_logs(self.image_path)
-        elif self.analysis_type == 'network':
-            results['network'] = network.analyze_network_traffic(self.image_path)
-        elif self.analysis_type == 'timestamp':
-            results['timestamp'] = timestamp.print_file_timestamps(self.image_path)
-        elif self.analysis_type == 'malware':
-            results['malware'] = malware.scan_file_for_yara(self.image_path)
-        
-        self.analysis_done.emit(results)
+        self.progress.emit("Worker thread started")
+        analyzer = ForensicAnalyzer()
+        self.progress.emit("Starting file listing")
+        files = analyzer.list_files(self.directory)
+        self.progress.emit("File listing completed")
+        self.finished.emit(files)
 
-class MainWindow(QMainWindow, Ui_MainWindow):
+class App(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setupUi(self)
-        self.connect_signals()
+        self.ui = MainWindow(self)
+        self.setCentralWidget(self.ui)
+        self.ui.load_data_button.clicked.connect(self.load_data)
+        self.ui.worker_progress_signal.connect(self.update_progress)
 
-    def connect_signals(self):
-        self.pushButtonStartAnalysis.clicked.connect(self.start_analysis)
-        self.pushButtonGenerateReport.clicked.connect(self.generate_report)
-    
-    def start_analysis(self):
-        # File dialog for selecting forensic image
-        image_path, _ = QFileDialog.getOpenFileName(self, "Select Forensic Image")
-        if not image_path:
-            return
-        
-        output_dir = QFileDialog.getExistingDirectory(self, "Select Output Directory")
-        if not output_dir:
-            return
+    def load_data(self):
+        # Replace 'Z:' with the drive letter where the image is mounted
+        self.thread = Worker('E:/')
+        self.thread.finished.connect(self.update_file_table)
+        self.thread.progress.connect(self.update_progress)
+        self.thread.start()
 
-        # Determine which tab is selected for analysis type
-        analysis_type = self.tabWidget.currentWidget().objectName()
+    def update_file_table(self, files):
+        self.ui.update_file_table(files)
+        print("File table updated")
 
-        # Start the analysis in a separate thread
-        self.analysis_thread = ForensicAnalysisThread(analysis_type, image_path, output_dir)
-        self.analysis_thread.update_progress.connect(self.update_progress)
-        self.analysis_thread.analysis_done.connect(self.display_results)
-        self.analysis_thread.start()
-
-    def update_progress(self, value):
-        self.progressBar.setValue(value)
-
-    def display_results(self, results):
-        # Display results in the appropriate widget (e.g., QTextBrowser)
-        if 'extract' in results:
-            self.textBrowserResults.setText(results['extract'])
-        elif 'registry' in results:
-            self.textBrowserResults.setText(results['registry'])
-        # Handle other types similarly...
-        
-        QMessageBox.information(self, "Analysis Complete", "The analysis is complete.")
-    
-    def generate_report(self):
-        data = {
-            'files': [],  # Populate with extracted data
-            'registry': [],
-            'logs': [],
-            'network': [],
-            'malware': []
-        }
-        report.generate_report(data, 'templates/report_template.html', 'forensic_report.pdf')
-        QMessageBox.information(self, "Report Generated", "The forensic report has been generated.")
+    def update_progress(self, message):
+        print(message)  # Print progress messages to the console
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = App()
     window.show()
     sys.exit(app.exec_())

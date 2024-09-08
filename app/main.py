@@ -1,49 +1,91 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow
-from PyQt5.QtCore import QThread, pyqtSignal
-from ui import MainWindow
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QFileDialog, QTableWidget, QTableWidgetItem, QLineEdit
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from forensic import ForensicAnalyzer
 
-class Worker(QThread):
-    finished = pyqtSignal(list)
-    progress = pyqtSignal(str)
+class WorkerThread(QThread):
+    progress_signal = pyqtSignal(str)
+    data_signal = pyqtSignal(list)
 
     def __init__(self, directory):
         super().__init__()
         self.directory = directory
 
     def run(self):
-        self.progress.emit("Worker thread started")
+        self.progress_signal.emit("Worker thread started")
+        self.progress_signal.emit("Starting file listing")
         analyzer = ForensicAnalyzer()
-        self.progress.emit("Starting file listing")
         files = analyzer.list_files(self.directory)
-        self.progress.emit("File listing completed")
-        self.finished.emit(files)
+        self.progress_signal.emit("File listing complete")
+        self.data_signal.emit(files)
 
-class App(QMainWindow):
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.ui = MainWindow(self)
-        self.setCentralWidget(self.ui)
-        self.ui.load_data_button.clicked.connect(self.load_data)
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle('Forensic Analysis')
+        self.setGeometry(100, 100, 1200, 600)  # Adjusted width for more columns
+
+        # Search bar
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setPlaceholderText('Search...')
+        self.search_bar.textChanged.connect(self.filter_table)
+
+        # Table setup
+        self.table = QTableWidget(self)
+        self.table.setColumnCount(7)  # Updated to 7 columns
+        self.table.setHorizontalHeaderLabels(['Path', 'Modified Time', 'Created Time', 'Access Time', 'Size', 'SHA-256', 'Suspicious'])
+        self.table.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
+        self.table.setSortingEnabled(True)  # Enable sorting
+
+        # Load data button
+        self.load_data_button = QPushButton('Load Data', self)
+        self.load_data_button.clicked.connect(self.load_data)
+
+        # Layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.search_bar)
+        layout.addWidget(self.load_data_button)
+        layout.addWidget(self.table)
+
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
 
     def load_data(self):
-        self.ui.worker_progress_signal.emit("Loading data...")
-        # Replace 'Z:' with the drive letter where the image is mounted
-        self.thread = Worker('E:/')
-        self.thread.finished.connect(self.update_file_table)
-        self.thread.progress.connect(self.update_progress)
-        self.thread.start()
+        directory = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if directory:
+            self.thread = WorkerThread(directory)
+            self.thread.progress_signal.connect(self.update_status)
+            self.thread.data_signal.connect(self.update_table)
+            self.thread.start()
 
-    def update_file_table(self, files):
-        self.ui.update_file_table(files)
-        print("File table updated")
+    def update_status(self, message):
+        print(message)  # For debugging, replace with a status display if needed
 
-    def update_progress(self, message):
-        print(message)  # Print progress messages to the console
+    def update_table(self, files):
+        self.table.setRowCount(len(files))
+        for row, file_info in enumerate(files):
+            self.table.setItem(row, 0, QTableWidgetItem(file_info['path']))
+            self.table.setItem(row, 1, QTableWidgetItem(file_info['modified_time']))
+            self.table.setItem(row, 2, QTableWidgetItem(file_info['created_time']))
+            self.table.setItem(row, 3, QTableWidgetItem(file_info['access_time']))
+            self.table.setItem(row, 4, QTableWidgetItem(str(file_info['size'])))
+            self.table.setItem(row, 5, QTableWidgetItem(file_info['sha256']))
+            self.table.setItem(row, 6, QTableWidgetItem('Yes' if file_info['is_suspicious'] else 'No'))
+
+    def filter_table(self, text):
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)  # Search in the 'Path' column
+            if item and text.lower() in item.text().lower():
+                self.table.setRowHidden(row, False)
+            else:
+                self.table.setRowHidden(row, True)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    window = App()
+    window = MainWindow()
     window.show()
     sys.exit(app.exec_())

@@ -281,6 +281,10 @@ class MainWindow(QMainWindow):
 
     def show_analysis_results(self, results):
         # This method should display the results of the analysis
+        result_dialog = QMessageBox(self)
+        result_dialog.setWindowTitle("CNN Analysis Results")
+        result_dialog.setText("\n".join([f"{path}: {result}" for path, result in results]))
+        result_dialog.exec_()
         pass
 
     def filter_table(self, text):
